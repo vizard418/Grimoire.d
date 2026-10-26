@@ -9,8 +9,8 @@ class Zoltraak:
     """Clase principal para parsear un proyecto"""
 
     EXTENSION_MAP = {
-        "python": {".py", ".requirements", ".toml", ".ini", ".cfg"},
-        "python3": {".py", ".requirements", ".toml", ".ini", ".cfg"},
+        "python": {".py"},
+        "python3": {".py"},
         "html": {".html", ".htm"},
         "css": {".css", ".scss", ".sass"},
         "js": {".js", ".ts", ".jsx", ".tsx"},
@@ -65,15 +65,52 @@ class Zoltraak:
         ext = os.path.splitext(filename)[1].lower()
         return ext in self.allowed_extensions
 
-    def print_tree(self):
-        """Imprime la estructura de arbol del proyecto."""
-        print("--- ESTRUCTURA DEL DIRECTORIO ---")
+    def _get_valid_files(self):
+        """Obtiene la lista de archivos validos segun los filtros."""
+        valid_files = []
         for dirpath, dirnames, filenames in os.walk(self.root_path):
             dirnames[:] = [
                 d for d in sorted(dirnames) if not self._should_ignore(d, is_dir=True)
             ]
+            for filename in sorted(filenames):
+                if self._should_ignore(filename, is_dir=False):
+                    continue
+                if not self._is_extension_allowed(filename):
+                    continue
+                valid_files.append(os.path.join(dirpath, filename))
+        return valid_files
 
+    def print_tree(self):
+        """Imprime la estructura de arbol del proyecto filtrada."""
+        print("--- ESTRUCTURA DEL DIRECTORIO ---")
+        valid_files = self._get_valid_files()
+        
+        valid_dirs = set()
+        for f in valid_files:
+            rel_dir = os.path.relpath(os.path.dirname(f), self.root_path)
+            curr = rel_dir
+            while curr and curr != ".":
+                valid_dirs.add(curr)
+                curr = os.path.dirname(curr)
+
+        for dirpath, dirnames, filenames in os.walk(self.root_path):
             rel_path = os.path.relpath(dirpath, self.root_path)
+            if rel_path != "." and rel_path not in valid_dirs:
+                continue
+
+            dirnames[:] = [
+                d for d in sorted(dirnames) 
+                if not self._should_ignore(d, is_dir=True) and os.path.relpath(os.path.join(dirpath, d), self.root_path) in valid_dirs
+            ]
+
+            current_valid_files = [
+                f for f in filenames 
+                if not self._should_ignore(f, is_dir=False) and self._is_extension_allowed(f)
+            ]
+
+            if rel_path != "." and not current_valid_files and not any(os.path.relpath(os.path.join(dirpath, d), self.root_path) in valid_dirs for d in dirnames):
+                continue
+
             indent_level = 0 if rel_path == "." else rel_path.count(os.sep) + 1
             indent = "  " * indent_level
 
@@ -90,31 +127,22 @@ class Zoltraak:
     def print_files_content(self):
         """Imprime el contenido de los archivos filtrados."""
         print("\n--- CONTENIDO DE LOS ARCHIVOS ---\n")
-        for dirpath, dirnames, filenames in os.walk(self.root_path):
-            dirnames[:] = [
-                d for d in sorted(dirnames) if not self._should_ignore(d, is_dir=True)
-            ]
+        valid_files = self._get_valid_files()
 
-            for filename in sorted(filenames):
-                if self._should_ignore(filename, is_dir=False):
-                    continue
-                if not self._is_extension_allowed(filename):
-                    continue
+        for file_path in sorted(valid_files):
+            rel_file_path = os.path.relpath(file_path, self.root_path)
+            ext = os.path.splitext(file_path)[1].lower()
 
-                file_path = os.path.join(dirpath, filename)
-                rel_file_path = os.path.relpath(file_path, self.root_path)
-                ext = os.path.splitext(filename)[1].lower()
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
 
-                try:
-                    with open(file_path, "r", encoding="utf-8") as f:
-                        content = f.read()
-
-                    print(f"File: {rel_file_path}")
-                    print("```" + (ext.lstrip(".") or "text"))
-                    print(content)
-                    print("```\n")
-                except (UnicodeDecodeError, PermissionError):
-                    continue
+                print(f"File: {rel_file_path}")
+                print("```" + (ext.lstrip(".") or "text"))
+                print(content)
+                print("```\n")
+            except (UnicodeDecodeError, PermissionError):
+                continue
 
     def generate(self):
         """Ejecuta el proceso completo."""
